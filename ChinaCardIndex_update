@@ -10,7 +10,7 @@ import operator
 
 # 数据库存储数据预处理（连接数据库）
 def conn():
-    connect = pymssql.connect(host = '192.168.1.51', user = 'stk_per_attr', password = 'stk_per_attr**', database = 'stk_per_attribution', autocommit = True) #服务器名,账户,密码,数据库名
+    connect = pymssql.connect(host = '', user = '', password = '', database = '', autocommit = True) #服务器名,账户,密码,数据库名
     if connect:
         print("连接成功!")
     return connect
