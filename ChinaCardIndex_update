@@ -1,0 +1,99 @@
+from  urllib import request,parse
+from  urllib import error
+import re
+import pymssql
+import requests
+import xlrd
+from xlrd import xldate_as_tuple
+from datetime import datetime
+import operator
+
+# 数据库存储数据预处理（连接数据库）
+def conn():
+    connect = pymssql.connect(host = '192.168.1.51', user = 'stk_per_attr', password = 'stk_per_attr**', database = 'stk_per_attribution', autocommit = True) #服务器名,账户,密码,数据库名
+    if connect:
+        print("连接成功!")
+    return connect
+if __name__ == '__main__':
+    conn = conn()
+#定义抓取页面函数
+def ChinaCardIndexSpider(url):
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/65.0.3325.181 Safari/537.36"}
+        req = request.Request(url,headers=headers)
+        try:
+            response = request.urlopen(req)
+            resHtml = response.read()
+            resHtml = resHtml.decode("utf-8", 'ignore')
+            # 获取下一个url
+            url = r'<a target="_blank" href="(.*?)">.*?</a>'
+            url_pattern = re.compile(url, re.I | re.S | re.M)
+            req1 = url_pattern.findall(resHtml)
+            response1 = request.urlopen(req1[0])
+            resHtml1 = response1.read()
+            resHtml1 = resHtml1.decode("utf-8", 'ignore')
+            # 下载文件和获取文件名
+            download_url = r'<li><a target="_blank" href="(.*?)" class="stats_index">.*?</a>'
+            data_name = r'<li><a target="_blank" href=".*?" class="stats_index"><i class="i_icon_excel"></i>(.*?)</a>'
+            download_url_pattern = re.compile(download_url, re.I | re.S | re.M)
+            name_pattern = re.compile(data_name, re.I | re.S | re.M)
+            download_req = download_url_pattern.findall(resHtml1)
+            data_name =name_pattern.findall(resHtml1)[0]
+            # 下载地址
+            Download_addres = download_req[2]
+            # 把下载地址发送给requests模块
+            f = requests.get(Download_addres)
+            # 下载文件
+            data_name = data_name
+            with open("%s"%data_name, "wb") as code:
+                code.write(f.content)
+            # 打开文件查找数据
+            book = xlrd.open_workbook('%s'%data_name)
+            sheet_name = book.sheet_names()[0]
+            table1 = book.sheet_by_name(u"%s"%(sheet_name))
+
+            data_list = []
+            for i in range(table1.nrows - 1):
+                # 权重
+                weight = str((table1.col(8)[i + 1]).value/100)
+                #日期
+                date = (table1.col(0)[i + 1]).value
+                date = datetime(*xldate_as_tuple(date,0)).date().strftime('%Y%m%d')
+               #指数代码
+                index_code = (table1.col(1)[i + 1]).value
+               # 指数名称
+                index_name = (table1.col(2)[i + 1]).value
+               # 成分股数量
+                stocks_number = int((table1.col(1)[i + 1]).value)
+                # 成分券代码
+                stock_code = (table1.col(4)[i + 1]).value
+                data_list.append((index_code,index_name,stock_code,date,weight))
+
+            # 1,检查t_stock_constituent_in_index与数据库中数据是否一致,不一致删除原数据
+            cursor = conn.cursor()
+            sql = "select index_code,index_name,stock_code,[date],weight from  t_stock_constituent_in_index where index_code = %s"
+            cursor.execute(sql, index_code)
+            data = cursor.fetchall()
+            if operator.eq(data_list,data) == True:
+                pass
+            else:
+                cursor = conn.cursor()
+                sql = "delete from   t_stock_constituent_in_index where index_code = %s"
+                cursor.execute(sql, index_code)
+                conn.commit()
+            #存入新数据
+            sql = "insert into  t_stock_constituent_in_index(index_code,index_name,stock_code,[date],weight) values(%s,%s,%s,%s,%s)"
+            cursor.executemany(sql, data_list)
+            conn.commit()
+            cursor.close()
+        except error.URLError as e:
+            print(e)
+
+
+if __name__ == "__main__":
+    # proxy = {"http": "112.85.170.97:9999"}
+    # proxy_support = request.ProxyHandler(proxy)
+    # opener = request.build_opener(proxy_support)
+    # request.install_opener(opener)
+    url = "http://www.csindex.com.cn/zh-CN/search/indices?key=%E6%B2%AA%E6%B7%B1300"
+    ChinaCardIndexSpider(url)
